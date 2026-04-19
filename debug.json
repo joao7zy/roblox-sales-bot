@@ -1,0 +1,21 @@
+{
+  "id": 0,
+  "idHash": "6DtSL6A5A9Ub7rCEE5fd9g",
+  "created": "2026-04-19T20:30:01.152Z",
+  "isPending": true,
+  "agent": {
+    "id": 541273770,
+    "type": "User",
+    "name": "スター"
+  },
+  "details": {
+    "id": 122671655199924,
+    "name": "Cute Couple Cats Shirt – Soft Aesthetic",
+    "type": "Asset"
+  },
+  "currency": {
+    "amount": 4,
+    "type": "Robux"
+  },
+  "purchaseToken": "8697043f-ab3f-4e99-948f-0fe60e3a359e"
+}

@@ -1,0 +1,21 @@
+{
+  "id": 0,
+  "idHash": "XV6+6Ft7o6wrEPwX/a1Ftw",
+  "created": "2026-04-19T21:12:25.592Z",
+  "isPending": true,
+  "agent": {
+    "id": 541273770,
+    "type": "User",
+    "name": "スター"
+  },
+  "details": {
+    "id": 128797301288931,
+    "name": "Black Aesthetic Arabe Street ",
+    "type": "Asset"
+  },
+  "currency": {
+    "amount": 4,
+    "type": "Robux"
+  },
+  "purchaseToken": "7224aa6a-eed9-48a2-8b6c-10b199af7d94"
+}
