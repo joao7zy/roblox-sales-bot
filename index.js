@@ -6,48 +6,33 @@ const path = require("path");
 const CONFIG = {
   webhook: process.env.WEBHOOK,
   cookie: process.env.COOKIE,
-  mode: process.env.MODE || "group",
-  userId: process.env.USER_ID || "",
-  groupId: process.env.GROUP_ID || "",
+  groupId: process.env.GROUP_ID,
   delay: Number(process.env.DELAY || 10000),
   timezone: "America/Sao_Paulo",
-
-  // taxa padrão:
-  // 0.30 = você recebe 30%
-  // 0.70 = você recebe 70%
-  defaultReceiveRate: Number(process.env.DEFAULT_RECEIVE_RATE || 0.30),
-
+  receiveRate: Number(process.env.DEFAULT_RECEIVE_RATE || 0.30),
   expensiveSaleThreshold: Number(process.env.EXPENSIVE_SALE_THRESHOLD || 50)
 };
-// ==========================================
 
-// ========= MAPA DOS SEUS ITENS =========
-// Cada item pode ter:
-// - name: nome
-// - receiveRate: quanto VOCÊ recebe
-//
-// Exemplo:
-// receiveRate: 0.30 -> você recebe 30%
-// receiveRate: 0.70 -> você recebe 70%
+// ========= SEUS ITENS =========
 const ITEM_CONFIG = {
   "138042092845315": {
     name: "Combo de Cabelo Kawaii Fofo (Arco + Rosto)",
-    receiveRate: 0.30
+    basePrice: 60
   },
   "78526579681552": {
     name: "Rosto de cabelo de menina macio de anime branco fofo incluído",
-    receiveRate: 0.30
+    basePrice: 60
   },
   "139400082802304": {
     name: "vkey Emo branco Empty Eyes Face + Cabelo (Estético)",
-    receiveRate: 0.30
+    basePrice: 60
   },
   "80314120823784": {
     name: "Cabelo Emo Fofo com Cara de Gatinho Espetado Preto + Óculos",
-    receiveRate: 0.30
+    basePrice: 90
   }
 };
-// =======================================
+// ==========================================
 
 const DATA_DIR = path.join(__dirname, "data");
 const SENT_FILE = path.join(DATA_DIR, "sent.json");
@@ -79,11 +64,16 @@ function saveJSON(file, data) {
 const sent = new Set(loadJSON(SENT_FILE, []));
 const stats = loadJSON(STATS_FILE, {});
 const meta = loadJSON(META_FILE, {
-  lastSummarySentForDay: null
+  lastSummarySentForDay: null,
+  bootstrappedDay: null
 });
 
 function saveSent() {
   saveJSON(SENT_FILE, [...sent]);
+}
+
+function saveStats() {
+  saveJSON(STATS_FILE, stats);
 }
 
 function saveMeta() {
@@ -129,18 +119,29 @@ function getDateKeyFromISO(isoString) {
   }
 }
 
+function getTodayKey() {
+  return getBrasiliaDateKey();
+}
+
 function getYesterdayKey() {
   const now = new Date();
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   return getBrasiliaDateKey(yesterday);
 }
 
+function isTodayInBrasilia(isoString) {
+  return getDateKeyFromISO(isoString) === getTodayKey();
+}
+
 function ensureDayStats(dayKey) {
   if (!stats[dayKey]) {
     stats[dayKey] = {
       salesCount: 0,
-      totalRobux: 0,         // lucro / recebido
-      grossRobux: 0,         // faturamento bruto
+      totalRobux: 0,
+      grossRobux: 0,
+      regionalSales: 0,
+      normalSales: 0,
+      unknownSales: 0,
       expensiveSales: 0,
       items: {}
     };
@@ -166,11 +167,7 @@ function getTopItems(dayKey, limit = 3) {
 }
 
 function getSalesUrl() {
-  if (CONFIG.mode === "group") {
-    return `https://economy.roblox.com/v2/groups/${CONFIG.groupId}/transactions?transactionType=Sale&limit=50&sortOrder=Desc`;
-  }
-
-  return `https://economy.roblox.com/v2/users/${CONFIG.userId}/transactions?transactionType=Sale&limit=50&sortOrder=Desc`;
+  return `https://economy.roblox.com/v2/groups/${CONFIG.groupId}/transactions?transactionType=Sale&limit=50&sortOrder=Desc`;
 }
 
 async function getSales() {
@@ -244,18 +241,47 @@ function extractItemIds(tx) {
     .filter((v, i, arr) => arr.indexOf(v) === i);
 }
 
-function resolveMappedItem(candidateIds) {
-  for (const id of candidateIds) {
-    if (ITEM_CONFIG[id]) {
-      return {
-        itemId: id,
-        itemName: ITEM_CONFIG[id].name,
-        receiveRate: Number(ITEM_CONFIG[id].receiveRate || CONFIG.defaultReceiveRate)
-      };
-    }
+function sanitizeItemName(name) {
+  return String(name || "Item não identificado")
+    .replace(/\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function calcGrossFromReceived(received) {
+  if (!CONFIG.receiveRate || CONFIG.receiveRate <= 0) return received;
+  return Math.round(received / CONFIG.receiveRate);
+}
+
+function classifySale(basePrice, estimatedGross) {
+  if (!basePrice || basePrice <= 0) {
+    return {
+      kind: "unknown",
+      label: "Preço base não configurado"
+    };
   }
 
-  return null;
+  const diff = basePrice - estimatedGross;
+  const percentDiff = diff / basePrice;
+
+  if (Math.abs(percentDiff) <= 0.10) {
+    return {
+      kind: "normal",
+      label: "Preço normal"
+    };
+  }
+
+  if (estimatedGross < basePrice) {
+    return {
+      kind: "regional",
+      label: "Preço regional / desconto"
+    };
+  }
+
+  return {
+    kind: "unknown",
+    label: "Preço diferente do base"
+  };
 }
 
 async function getCatalogItemName(itemId) {
@@ -291,15 +317,22 @@ async function getCatalogItemName(itemId) {
 async function resolveItem(tx) {
   const candidateIds = extractItemIds(tx);
 
-  const mapped = resolveMappedItem(candidateIds);
-  if (mapped) return mapped;
+  for (const id of candidateIds) {
+    if (ITEM_CONFIG[id]) {
+      return {
+        itemId: id,
+        itemName: ITEM_CONFIG[id].name,
+        basePrice: Number(ITEM_CONFIG[id].basePrice || 0)
+      };
+    }
+  }
 
   const txName = extractPossibleName(tx);
   if (txName && candidateIds[0]) {
     return {
       itemId: candidateIds[0],
       itemName: txName,
-      receiveRate: CONFIG.defaultReceiveRate
+      basePrice: 0
     };
   }
 
@@ -309,7 +342,7 @@ async function resolveItem(tx) {
       return {
         itemId: id,
         itemName: name,
-        receiveRate: CONFIG.defaultReceiveRate
+        basePrice: 0
       };
     }
   }
@@ -317,7 +350,7 @@ async function resolveItem(tx) {
   return {
     itemId: candidateIds[0] || null,
     itemName: txName || "Item não identificado",
-    receiveRate: CONFIG.defaultReceiveRate
+    basePrice: 0
   };
 }
 
@@ -365,22 +398,7 @@ async function getUserAvatar(userId) {
   }
 }
 
-function sanitizeItemName(name) {
-  return String(name || "Item não identificado")
-    .replace(/\n/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function calcGrossFromReceived(received, receiveRate) {
-  const rate = Number(receiveRate || CONFIG.defaultReceiveRate);
-
-  if (!rate || rate <= 0) return received;
-
-  return Math.round(received / rate);
-}
-
-function updateStats(dayKey, itemName, received, gross, amountThreshold) {
+function updateStats(dayKey, itemName, received, gross, saleKind) {
   const day = ensureDayStats(dayKey);
   const safeName = sanitizeItemName(itemName);
 
@@ -388,9 +406,13 @@ function updateStats(dayKey, itemName, received, gross, amountThreshold) {
   day.totalRobux += received;
   day.grossRobux += gross;
 
-  if (received >= amountThreshold) {
+  if (received >= CONFIG.expensiveSaleThreshold) {
     day.expensiveSales += 1;
   }
+
+  if (saleKind === "regional") day.regionalSales += 1;
+  else if (saleKind === "normal") day.normalSales += 1;
+  else day.unknownSales += 1;
 
   if (!day.items[safeName]) {
     day.items[safeName] = {
@@ -404,7 +426,7 @@ function updateStats(dayKey, itemName, received, gross, amountThreshold) {
   day.items[safeName].received += received;
   day.items[safeName].gross += gross;
 
-  saveJSON(STATS_FILE, stats);
+  saveStats();
 }
 
 function formatDateBR(dateString) {
@@ -447,7 +469,7 @@ async function sendWebhook(payload) {
   }
 }
 
-async function buildSaleEmbed(tx) {
+async function buildSaleData(tx) {
   const buyer = extractBuyer(tx);
   const received = extractAmount(tx);
   const created = extractCreated(tx);
@@ -458,26 +480,60 @@ async function buildSaleEmbed(tx) {
   const resolvedItem = await resolveItem(tx);
   const itemId = resolvedItem.itemId;
   const itemName = sanitizeItemName(resolvedItem.itemName);
-  const receiveRate = Number(resolvedItem.receiveRate || CONFIG.defaultReceiveRate);
-  const gross = calcGrossFromReceived(received, receiveRate);
+  const basePrice = Number(resolvedItem.basePrice || 0);
+  const gross = calcGrossFromReceived(received);
+  const saleType = classifySale(basePrice, gross);
+
+  return {
+    buyer,
+    received,
+    created,
+    dayKey,
+    itemId,
+    itemName,
+    basePrice,
+    gross,
+    saleType
+  };
+}
+
+async function processTransaction(tx, shouldNotify) {
+  const txId = extractTransactionId(tx);
+
+  if (sent.has(txId)) return;
+  sent.add(txId);
+  saveSent();
+
+  const created = extractCreated(tx);
+  if (!isTodayInBrasilia(created)) return;
+
+  const sale = await buildSaleData(tx);
+
+  updateStats(
+    sale.dayKey,
+    sale.itemName,
+    sale.received,
+    sale.gross,
+    sale.saleType.kind
+  );
+
+  if (!shouldNotify) return;
 
   const [itemImage, buyerAvatar] = await Promise.all([
-    getItemImage(itemId),
-    getUserAvatar(buyer.id)
+    getItemImage(sale.itemId),
+    getUserAvatar(sale.buyer.id)
   ]);
 
-  const itemLink = itemId
-    ? `https://www.roblox.com/catalog/${itemId}`
+  const itemLink = sale.itemId
+    ? `https://www.roblox.com/catalog/${sale.itemId}`
     : "https://www.roblox.com/catalog/";
 
-  const buyerProfile = buyer.id
-    ? `https://www.roblox.com/users/${buyer.id}/profile`
+  const buyerProfile = sale.buyer.id
+    ? `https://www.roblox.com/users/${sale.buyer.id}/profile`
     : null;
 
-  updateStats(dayKey, itemName, received, gross, CONFIG.expensiveSaleThreshold);
-
-  const today = ensureDayStats(dayKey);
-  const topItems = getTopItems(dayKey, 1);
+  const today = ensureDayStats(sale.dayKey);
+  const topItems = getTopItems(sale.dayKey, 1);
   const topItem = topItems[0] || {
     name: "Nenhum item vendido",
     count: 0,
@@ -485,26 +541,28 @@ async function buildSaleEmbed(tx) {
     gross: 0
   };
 
-  return {
-    title: received >= CONFIG.expensiveSaleThreshold ? "🚨 Venda alta detectada" : "💸 Nova venda detectada",
-    color: getEmbedColor(received),
+  const embed = {
+    title: sale.received >= CONFIG.expensiveSaleThreshold ? "🚨 Venda alta detectada" : "💸 Nova venda detectada",
+    color: getEmbedColor(sale.received),
     description:
-      `**🛍️ Item:** ${itemId ? `[${itemName}](${itemLink})` : itemName}\n` +
-      `**🛒 Faturamento:** ${gross} Robux\n` +
-      `**💰 Lucro recebido:** ${received} Robux\n` +
-      `**📊 Taxa aplicada:** ${(receiveRate * 100).toFixed(0)}%\n` +
-      `**🕒 Data:** ${formatDateBR(created)}`,
+      `**🛍️ Item:** ${sale.itemId ? `[${sale.itemName}](${itemLink})` : sale.itemName}\n` +
+      `**🏷️ Tipo da venda:** ${sale.saleType.label}\n` +
+      `**🛒 Preço base:** ${sale.basePrice || "não configurado"} Robux\n` +
+      `**🛒 Preço estimado pago:** ${sale.gross} Robux\n` +
+      `**💰 Lucro recebido:** ${sale.received} Robux\n` +
+      `**📊 Taxa aplicada:** ${(CONFIG.receiveRate * 100).toFixed(0)}%\n` +
+      `**🕒 Data:** ${formatDateBR(sale.created)}`,
     fields: [
       {
         name: "👤 Comprador",
-        value: buyer.id
-          ? `[${buyer.name}](${buyerProfile})\nID: \`${buyer.id}\``
-          : buyer.name,
+        value: sale.buyer.id
+          ? `[${sale.buyer.name}](${buyerProfile})\nID: \`${sale.buyer.id}\``
+          : sale.buyer.name,
         inline: true
       },
       {
         name: "🆔 Item ID",
-        value: itemId ? `\`${itemId}\`` : "Não identificado",
+        value: sale.itemId ? `\`${sale.itemId}\`` : "Não identificado",
         inline: true
       },
       {
@@ -523,8 +581,18 @@ async function buildSaleEmbed(tx) {
         inline: true
       },
       {
+        name: "🌍 Regionais hoje",
+        value: `\`${today.regionalSales}\``,
+        inline: true
+      },
+      {
+        name: "🧾 Normais hoje",
+        value: `\`${today.normalSales}\``,
+        inline: true
+      },
+      {
         name: "🏆 Item mais vendido hoje",
-        value: `**${topItem.name}**\n${topItem.count} venda(s) • ${topItem.received} lucro • ${topItem.gross} bruto`,
+        value: `**${topItem.name}**\n${topItem.count} venda(s) • ${topItem.gross} bruto • ${topItem.received} lucro`,
         inline: false
       },
       {
@@ -536,22 +604,15 @@ async function buildSaleEmbed(tx) {
     thumbnail: buyerAvatar ? { url: buyerAvatar } : undefined,
     image: itemImage ? { url: itemImage } : undefined,
     author: {
-      name: buyer.name ? `${buyer.name} comprou um item` : "Nova venda no Roblox",
+      name: sale.buyer.name ? `${sale.buyer.name} comprou um item` : "Nova venda no Roblox",
       icon_url: buyerAvatar || undefined,
       url: buyerProfile || undefined
     },
     footer: {
-      text:
-        CONFIG.mode === "group"
-          ? `BOT VENDAS ROBLOX • Grupo ${CONFIG.groupId}`
-          : `BOT VENDAS ROBLOX • Usuário ${CONFIG.userId}`
+      text: `BOT VENDAS ROBLOX • Grupo ${CONFIG.groupId}`
     },
-    timestamp: new Date(created).toISOString()
+    timestamp: new Date(sale.created).toISOString()
   };
-}
-
-async function sendSale(tx) {
-  const embed = await buildSaleEmbed(tx);
 
   await sendWebhook({
     username: "BOT VENDAS ROBLOX",
@@ -584,6 +645,8 @@ async function sendDailySummary() {
       `🛒 **Faturamento bruto:** ${dayStats.grossRobux} Robux\n` +
       `💰 **Lucro recebido:** ${dayStats.totalRobux} Robux\n` +
       `📦 **Itens vendidos:** ${dayStats.salesCount}\n` +
+      `🌍 **Vendas regionais:** ${dayStats.regionalSales}\n` +
+      `🧾 **Vendas normais:** ${dayStats.normalSales}\n` +
       `🚨 **Vendas altas:** ${dayStats.expensiveSales}`,
     fields: [
       {
@@ -621,20 +684,25 @@ async function maybeSendDailySummary() {
   }
 }
 
-async function bootstrap() {
-  console.log("BOT PRO EVOLUÍDO INICIADO...");
+async function bootstrapTodayStats() {
+  const todayKey = getTodayKey();
+
+  if (meta.bootstrappedDay === todayKey) {
+    return;
+  }
+
+  console.log("Carregando vendas de hoje sem enviar spam...");
 
   const sales = await getSales();
 
-  for (const tx of sales) {
-    sent.add(extractTransactionId(tx));
+  for (const tx of [...sales].reverse()) {
+    await processTransaction(tx, false);
   }
 
-  saveSent();
-  saveJSON(STATS_FILE, stats);
+  meta.bootstrappedDay = todayKey;
   saveMeta();
 
-  console.log(`Ignorando ${sales.length} vendas antigas.`);
+  console.log("Estatísticas de hoje carregadas.");
 }
 
 async function checkSales() {
@@ -643,28 +711,18 @@ async function checkSales() {
   if (!sales.length) return;
 
   for (const tx of [...sales].reverse()) {
-    const txId = extractTransactionId(tx);
-
-    if (sent.has(txId)) continue;
-
-    try {
-      await sendSale(tx);
-      sent.add(txId);
-      saveSent();
-      console.log("✅ Nova venda enviada:", txId);
-    } catch (err) {
-      console.log("Erro ao enviar venda:", err.message);
-    }
+    await processTransaction(tx, true);
   }
 }
 
 async function loop() {
+  await bootstrapTodayStats();
   await checkSales();
   await maybeSendDailySummary();
 }
 
 async function start() {
-  await bootstrap();
+  console.log("BOT PRO EVOLUÍDO INICIADO...");
   await loop();
 
   setInterval(async () => {
