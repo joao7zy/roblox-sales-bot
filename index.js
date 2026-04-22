@@ -11,18 +11,43 @@ const CONFIG = {
   groupId: process.env.GROUP_ID || "",
   delay: Number(process.env.DELAY || 10000),
   timezone: "America/Sao_Paulo",
+
+  // taxa padrão:
+  // 0.30 = você recebe 30%
+  // 0.70 = você recebe 70%
+  defaultReceiveRate: Number(process.env.DEFAULT_RECEIVE_RATE || 0.30),
+
   expensiveSaleThreshold: Number(process.env.EXPENSIVE_SALE_THRESHOLD || 50)
 };
 // ==========================================
 
-// ========= MAPA MANUAL DOS SEUS ITENS =========
-const ITEM_NAME_MAP = {
-  "138042092845315": "Combo de Cabelo Kawaii Fofo (Arco + Rosto)",
-  "78526579681552": "Rosto de cabelo de menina macio de anime branco fofo incluído",
-  "139400082802304": "vkey Emo branco Empty Eyes Face + Cabelo (Estético)",
-  "80314120823784": "Cabelo Emo Fofo com Cara de Gatinho Espetado Preto + Óculos"
+// ========= MAPA DOS SEUS ITENS =========
+// Cada item pode ter:
+// - name: nome
+// - receiveRate: quanto VOCÊ recebe
+//
+// Exemplo:
+// receiveRate: 0.30 -> você recebe 30%
+// receiveRate: 0.70 -> você recebe 70%
+const ITEM_CONFIG = {
+  "138042092845315": {
+    name: "Combo de Cabelo Kawaii Fofo (Arco + Rosto)",
+    receiveRate: 0.30
+  },
+  "78526579681552": {
+    name: "Rosto de cabelo de menina macio de anime branco fofo incluído",
+    receiveRate: 0.30
+  },
+  "139400082802304": {
+    name: "vkey Emo branco Empty Eyes Face + Cabelo (Estético)",
+    receiveRate: 0.30
+  },
+  "80314120823784": {
+    name: "Cabelo Emo Fofo com Cara de Gatinho Espetado Preto + Óculos",
+    receiveRate: 0.30
+  }
 };
-// ==============================================
+// =======================================
 
 const DATA_DIR = path.join(__dirname, "data");
 const SENT_FILE = path.join(DATA_DIR, "sent.json");
@@ -114,7 +139,8 @@ function ensureDayStats(dayKey) {
   if (!stats[dayKey]) {
     stats[dayKey] = {
       salesCount: 0,
-      totalRobux: 0,
+      totalRobux: 0,         // lucro / recebido
+      grossRobux: 0,         // faturamento bruto
       expensiveSales: 0,
       items: {}
     };
@@ -129,12 +155,13 @@ function getTopItems(dayKey, limit = 3) {
 
   if (!entries.length) return [];
 
-  entries.sort((a, b) => b[1].count - a[1].count || b[1].robux - a[1].robux);
+  entries.sort((a, b) => b[1].count - a[1].count || b[1].received - a[1].received);
 
   return entries.slice(0, limit).map(([name, data]) => ({
     name,
     count: data.count,
-    robux: data.robux
+    received: data.received,
+    gross: data.gross
   }));
 }
 
@@ -217,12 +244,13 @@ function extractItemIds(tx) {
     .filter((v, i, arr) => arr.indexOf(v) === i);
 }
 
-function resolveMappedItemName(candidateIds) {
+function resolveMappedItem(candidateIds) {
   for (const id of candidateIds) {
-    if (ITEM_NAME_MAP[id]) {
+    if (ITEM_CONFIG[id]) {
       return {
-        id,
-        name: ITEM_NAME_MAP[id]
+        itemId: id,
+        itemName: ITEM_CONFIG[id].name,
+        receiveRate: Number(ITEM_CONFIG[id].receiveRate || CONFIG.defaultReceiveRate)
       };
     }
   }
@@ -262,20 +290,16 @@ async function getCatalogItemName(itemId) {
 
 async function resolveItem(tx) {
   const candidateIds = extractItemIds(tx);
-  const mapped = resolveMappedItemName(candidateIds);
 
-  if (mapped) {
-    return {
-      itemId: mapped.id,
-      itemName: mapped.name
-    };
-  }
+  const mapped = resolveMappedItem(candidateIds);
+  if (mapped) return mapped;
 
   const txName = extractPossibleName(tx);
   if (txName && candidateIds[0]) {
     return {
       itemId: candidateIds[0],
-      itemName: txName
+      itemName: txName,
+      receiveRate: CONFIG.defaultReceiveRate
     };
   }
 
@@ -284,14 +308,16 @@ async function resolveItem(tx) {
     if (name) {
       return {
         itemId: id,
-        itemName: name
+        itemName: name,
+        receiveRate: CONFIG.defaultReceiveRate
       };
     }
   }
 
   return {
     itemId: candidateIds[0] || null,
-    itemName: txName || "Item não identificado"
+    itemName: txName || "Item não identificado",
+    receiveRate: CONFIG.defaultReceiveRate
   };
 }
 
@@ -339,26 +365,44 @@ async function getUserAvatar(userId) {
   }
 }
 
-function updateStats(dayKey, itemName, amount) {
+function sanitizeItemName(name) {
+  return String(name || "Item não identificado")
+    .replace(/\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function calcGrossFromReceived(received, receiveRate) {
+  const rate = Number(receiveRate || CONFIG.defaultReceiveRate);
+
+  if (!rate || rate <= 0) return received;
+
+  return Math.round(received / rate);
+}
+
+function updateStats(dayKey, itemName, received, gross, amountThreshold) {
   const day = ensureDayStats(dayKey);
-  const safeName = itemName || "Item não identificado";
+  const safeName = sanitizeItemName(itemName);
 
   day.salesCount += 1;
-  day.totalRobux += amount;
+  day.totalRobux += received;
+  day.grossRobux += gross;
 
-  if (amount >= CONFIG.expensiveSaleThreshold) {
+  if (received >= amountThreshold) {
     day.expensiveSales += 1;
   }
 
   if (!day.items[safeName]) {
     day.items[safeName] = {
       count: 0,
-      robux: 0
+      received: 0,
+      gross: 0
     };
   }
 
   day.items[safeName].count += 1;
-  day.items[safeName].robux += amount;
+  day.items[safeName].received += received;
+  day.items[safeName].gross += gross;
 
   saveJSON(STATS_FILE, stats);
 }
@@ -382,10 +426,10 @@ function formatDayBR(dayKey) {
   }
 }
 
-function getEmbedColor(amount) {
-  if (amount >= 100) return 0xf1c40f;
-  if (amount >= CONFIG.expensiveSaleThreshold) return 0xe74c3c;
-  if (amount >= 20) return 0x3498db;
+function getEmbedColor(received) {
+  if (received >= 100) return 0xf1c40f;
+  if (received >= CONFIG.expensiveSaleThreshold) return 0xe74c3c;
+  if (received >= 20) return 0x3498db;
   return 0x00e68a;
 }
 
@@ -405,7 +449,7 @@ async function sendWebhook(payload) {
 
 async function buildSaleEmbed(tx) {
   const buyer = extractBuyer(tx);
-  const amount = extractAmount(tx);
+  const received = extractAmount(tx);
   const created = extractCreated(tx);
   const dayKey = getDateKeyFromISO(created);
 
@@ -413,7 +457,9 @@ async function buildSaleEmbed(tx) {
 
   const resolvedItem = await resolveItem(tx);
   const itemId = resolvedItem.itemId;
-  const itemName = resolvedItem.itemName;
+  const itemName = sanitizeItemName(resolvedItem.itemName);
+  const receiveRate = Number(resolvedItem.receiveRate || CONFIG.defaultReceiveRate);
+  const gross = calcGrossFromReceived(received, receiveRate);
 
   const [itemImage, buyerAvatar] = await Promise.all([
     getItemImage(itemId),
@@ -428,22 +474,25 @@ async function buildSaleEmbed(tx) {
     ? `https://www.roblox.com/users/${buyer.id}/profile`
     : null;
 
-  updateStats(dayKey, itemName, amount);
+  updateStats(dayKey, itemName, received, gross, CONFIG.expensiveSaleThreshold);
 
   const today = ensureDayStats(dayKey);
   const topItems = getTopItems(dayKey, 1);
   const topItem = topItems[0] || {
     name: "Nenhum item vendido",
     count: 0,
-    robux: 0
+    received: 0,
+    gross: 0
   };
 
   return {
-    title: amount >= CONFIG.expensiveSaleThreshold ? "🚨 Venda alta detectada" : "💸 Nova venda detectada",
-    color: getEmbedColor(amount),
+    title: received >= CONFIG.expensiveSaleThreshold ? "🚨 Venda alta detectada" : "💸 Nova venda detectada",
+    color: getEmbedColor(received),
     description:
       `**🛍️ Item:** ${itemId ? `[${itemName}](${itemLink})` : itemName}\n` +
-      `**💰 Valor:** ${amount} Robux\n` +
+      `**🛒 Faturamento:** ${gross} Robux\n` +
+      `**💰 Lucro recebido:** ${received} Robux\n` +
+      `**📊 Taxa aplicada:** ${(receiveRate * 100).toFixed(0)}%\n` +
       `**🕒 Data:** ${formatDateBR(created)}`,
     fields: [
       {
@@ -464,19 +513,24 @@ async function buildSaleEmbed(tx) {
         inline: true
       },
       {
-        name: "💰 Robux hoje",
+        name: "🛒 Faturamento hoje",
+        value: `\`${today.grossRobux} Robux\``,
+        inline: true
+      },
+      {
+        name: "💰 Lucro hoje",
         value: `\`${today.totalRobux} Robux\``,
         inline: true
       },
       {
         name: "🏆 Item mais vendido hoje",
-        value: `**${topItem.name}**\n${topItem.count} venda(s) • ${topItem.robux} Robux`,
-        inline: true
+        value: `**${topItem.name}**\n${topItem.count} venda(s) • ${topItem.received} lucro • ${topItem.gross} bruto`,
+        inline: false
       },
       {
         name: "🔗 Link do item",
         value: `[Abrir no Roblox](${itemLink})`,
-        inline: true
+        inline: false
       }
     ],
     thumbnail: buyerAvatar ? { url: buyerAvatar } : undefined,
@@ -517,18 +571,20 @@ async function sendDailySummary() {
 
   const rankingText = topItems.length
     ? topItems.map((item, index) =>
-        `**${index + 1}. ${item.name}**\n${item.count} venda(s) • ${item.robux} Robux`
+        `**${index + 1}. ${item.name}**\n${item.count} venda(s) • ${item.gross} bruto • ${item.received} lucro`
       ).join("\n\n")
     : "Nenhum item vendido.";
 
   const embed = {
-    title: "🌙 Resumo diário de vendas",
+    title: "🌙 Relatório diário de vendas",
     color: 0x9b59b6,
     description:
-      `**📅 Dia:** ${formatDayBR(yesterdayKey)}\n` +
-      `**📦 Itens vendidos:** ${dayStats.salesCount}\n` +
-      `**💰 Total de Robux:** ${dayStats.totalRobux}\n` +
-      `**🚨 Vendas altas:** ${dayStats.expensiveSales}`,
+      `👋 **Olá senhor, boa noite.**\n\n` +
+      `📅 **Hoje (${formatDayBR(yesterdayKey)}) tivemos:**\n\n` +
+      `🛒 **Faturamento bruto:** ${dayStats.grossRobux} Robux\n` +
+      `💰 **Lucro recebido:** ${dayStats.totalRobux} Robux\n` +
+      `📦 **Itens vendidos:** ${dayStats.salesCount}\n` +
+      `🚨 **Vendas altas:** ${dayStats.expensiveSales}`,
     fields: [
       {
         name: "🏆 Top itens do dia",
@@ -537,7 +593,7 @@ async function sendDailySummary() {
       }
     ],
     footer: {
-      text: "Resumo automático • meia-noite de Brasília"
+      text: "Relatório automático • meia-noite de Brasília"
     },
     timestamp: new Date().toISOString()
   };
@@ -550,7 +606,7 @@ async function sendDailySummary() {
   meta.lastSummarySentForDay = yesterdayKey;
   saveMeta();
 
-  console.log(`📊 Resumo diário enviado: ${yesterdayKey}`);
+  console.log(`📊 Relatório diário enviado: ${yesterdayKey}`);
 }
 
 async function maybeSendDailySummary() {
