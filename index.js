@@ -4,20 +4,30 @@ const path = require("path");
 
 // ================= CONFIG =================
 const CONFIG = {
-  webhook: "https://discord.com/api/webhooks/1495322430372053073/htpiQJE-nRTlkFA1SsYlWO5iM06BA04cJxmlz18RlUAz2NUrciWsR6AN-IVt6s7jEYFF",
-  cookie: "_|WARNING:-DO-NOT-SHARE-THIS.--Sharing-this-will-allow-someone-to-log-in-as-you-and-to-steal-your-ROBUX-and-items.|_CAEaAhADIhsKBGR1aWQSEzk0NjAxNTk4MDk4NjQ2Mzg2MTYoBA.GWxd3ebDp1v7dXaINQEeB1y4rJwRmb_XsiGb6bOGSeotnCkVexHaSJ8UPxfOqAm99SgCpdkgj4X5orx8zTxLPS3PnSBzYfuWHZGLxPWYR7PurzLcwPrITeGXMONSktpWE1sLFDVi16NmkeRt3Gxjk-qG9vZ_YC6Lf4LwqlFGMVn3mOPBC4mh5XCk-E7yl3b15a_gZh5-ToIIPh_aN8gwWekyOYnIhxSqIDQ7kHcsZtS2rz9x8d8RKfGfN60ejGa-KdED3Ydi44KtiafmcRDNwPBevfMCNQY0aBueIMp_udPxwZI88IIM9-uLdUtCfWPyS317tGdEJnquP8jfAIyda7tIWHPme0My8mCTyB5yh_7GJHlHgQKYx4jzH60EDOWFwT2CFNEWifzx_7G13tTUcj0-1n-UBzFO4RC0Z0x5wVew84YL7k179A4opdzgkEN6_A4r_gsPOos3BpGLZp1Zv1RgY1WOAhPw8vvZgk2BHjWi5H3Xr0rOSUkEVEDxQfhNr9PVHOKhg4boq1bWu9Sg5_4E7vljzBdRH0zBhJEGCnpD-NU2lu1k47EX50sEXzqQdqe0NGkD845lWxeglgA-kVh7u-SOHZdoXolvP8CwHtPx-iBBN0qDeTXIpu2_IarXgY1Qhy3jakHELfZIyhsHQkhVaxAJvzIADbWxwIEo01hRQptjFME7x2eMdhPOLp6MK1jFAjAY8lbUHWk6_KijhX2b0mnKJv8WWgt1--Cwe4_3khDIplQOxJAti1m7vnPf0PVV-QtLukxhiKNG30h94nwQQ_4tZeDM3JCG7JKnVtSLRavbOyt9B0TgMEAUY1ugTtJLWZ1g7J8P7-S3YLRjHZl1GO_iu7tTkYxJ2Ba7iMUnvMXZauEJnGWa6FMMYNCDOV3VgbemawODIXT1aM3glahGv5m4f4oZDZsocjiyu0rapFh9ab5MH6h7z_r705F70N-oVg",
-
-  mode: "group", // "user" ou "group"
-  userId: "3625852873",
-  groupId: "902595632",
-
-  delay: 10000
+  webhook: process.env.WEBHOOK,
+  cookie: process.env.COOKIE,
+  mode: process.env.MODE || "group",
+  userId: process.env.USER_ID || "",
+  groupId: process.env.GROUP_ID || "",
+  delay: Number(process.env.DELAY || 10000),
+  timezone: "America/Sao_Paulo",
+  expensiveSaleThreshold: Number(process.env.EXPENSIVE_SALE_THRESHOLD || 50)
 };
 // ==========================================
+
+// ========= MAPA MANUAL DOS SEUS ITENS =========
+const ITEM_NAME_MAP = {
+  "138042092845315": "Combo de Cabelo Kawaii Fofo (Arco + Rosto)",
+  "78526579681552": "Rosto de cabelo de menina macio de anime branco fofo incluído",
+  "139400082802304": "vkey Emo branco Empty Eyes Face + Cabelo (Estético)",
+  "80314120823784": "Cabelo Emo Fofo com Cara de Gatinho Espetado Preto + Óculos"
+};
+// ==============================================
 
 const DATA_DIR = path.join(__dirname, "data");
 const SENT_FILE = path.join(DATA_DIR, "sent.json");
 const STATS_FILE = path.join(DATA_DIR, "stats.json");
+const META_FILE = path.join(DATA_DIR, "meta.json");
 const DEBUG_FILE = path.join(DATA_DIR, "debug.json");
 
 if (!fs.existsSync(DATA_DIR)) {
@@ -42,28 +52,90 @@ function saveJSON(file, data) {
 }
 
 const sent = new Set(loadJSON(SENT_FILE, []));
-let stats = loadJSON(STATS_FILE, {});
+const stats = loadJSON(STATS_FILE, {});
+const meta = loadJSON(META_FILE, {
+  lastSummarySentForDay: null
+});
 
-function todayKey() {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+function saveSent() {
+  saveJSON(SENT_FILE, [...sent]);
 }
 
-function ensureTodayStats() {
-  const key = todayKey();
+function saveMeta() {
+  saveJSON(META_FILE, meta);
+}
 
-  if (!stats[key]) {
-    stats[key] = {
+function saveDebug(tx) {
+  saveJSON(DEBUG_FILE, tx);
+}
+
+function getTimeParts(date = new Date()) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: CONFIG.timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  });
+
+  const parts = formatter.formatToParts(date);
+  const obj = {};
+
+  for (const p of parts) {
+    if (p.type !== "literal") obj[p.type] = p.value;
+  }
+
+  return obj;
+}
+
+function getBrasiliaDateKey(date = new Date()) {
+  const p = getTimeParts(date);
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
+function getDateKeyFromISO(isoString) {
+  try {
+    return getBrasiliaDateKey(new Date(isoString));
+  } catch {
+    return getBrasiliaDateKey();
+  }
+}
+
+function getYesterdayKey() {
+  const now = new Date();
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  return getBrasiliaDateKey(yesterday);
+}
+
+function ensureDayStats(dayKey) {
+  if (!stats[dayKey]) {
+    stats[dayKey] = {
       salesCount: 0,
       totalRobux: 0,
+      expensiveSales: 0,
       items: {}
     };
   }
 
-  return stats[key];
+  return stats[dayKey];
+}
+
+function getTopItems(dayKey, limit = 3) {
+  const day = ensureDayStats(dayKey);
+  const entries = Object.entries(day.items);
+
+  if (!entries.length) return [];
+
+  entries.sort((a, b) => b[1].count - a[1].count || b[1].robux - a[1].robux);
+
+  return entries.slice(0, limit).map(([name, data]) => ({
+    name,
+    count: data.count,
+    robux: data.robux
+  }));
 }
 
 function getSalesUrl() {
@@ -87,7 +159,7 @@ async function getSales() {
     });
 
     if (res.status !== 200) {
-      console.log(`⚠️ Roblox respondeu ${res.status}, tentando de novo depois...`);
+      console.log(`⚠️ Roblox respondeu ${res.status}, tentando depois...`);
       return [];
     }
 
@@ -95,72 +167,6 @@ async function getSales() {
   } catch (err) {
     console.log("⚠️ Roblox instável:", err.message);
     return [];
-  }
-}
-
-async function getItem(itemId) {
-  if (!itemId || Number(itemId) <= 0) return null;
-
-  try {
-    const res = await axios.get("https://catalog.roblox.com/v1/catalog/items/details", {
-      params: {
-        items: JSON.stringify([{ itemType: "Asset", id: Number(itemId) }])
-      },
-      timeout: 10000,
-      validateStatus: () => true
-    });
-
-    if (res.status !== 200) return null;
-
-    return res.data?.data?.[0] || null;
-  } catch {
-    return null;
-  }
-}
-
-async function getItemImage(itemId) {
-  if (!itemId || Number(itemId) <= 0) return null;
-
-  try {
-    const res = await axios.get("https://thumbnails.roblox.com/v1/assets", {
-      params: {
-        assetIds: Number(itemId),
-        size: "420x420",
-        format: "Png",
-        isCircular: false
-      },
-      timeout: 10000,
-      validateStatus: () => true
-    });
-
-    if (res.status !== 200) return null;
-
-    return res.data?.data?.[0]?.imageUrl || null;
-  } catch {
-    return null;
-  }
-}
-
-async function getUserAvatar(userId) {
-  if (!userId) return null;
-
-  try {
-    const res = await axios.get("https://thumbnails.roblox.com/v1/users/avatar-headshot", {
-      params: {
-        userIds: userId,
-        size: "150x150",
-        format: "Png",
-        isCircular: false
-      },
-      timeout: 10000,
-      validateStatus: () => true
-    });
-
-    if (res.status !== 200) return null;
-
-    return res.data?.data?.[0]?.imageUrl || null;
-  } catch {
-    return null;
   }
 }
 
@@ -183,96 +189,237 @@ function extractCreated(tx) {
   return tx?.created || new Date().toISOString();
 }
 
-function extractItemId(tx) {
+function extractPossibleName(tx) {
+  const names = [
+    tx?.details?.name,
+    tx?.details?.itemName,
+    tx?.itemName,
+    tx?.assetName,
+    tx?.productName
+  ].filter(Boolean);
+
+  return names[0] || null;
+}
+
+function extractItemIds(tx) {
   const ids = [
     tx?.details?.assetId,
     tx?.details?.id,
     tx?.assetId,
-    tx?.productId
+    tx?.productId,
+    tx?.details?.itemId,
+    tx?.details?.referenceId
   ];
 
-  for (const id of ids) {
-    if (id && Number(id) > 0) return Number(id);
+  return ids
+    .filter(Boolean)
+    .map((id) => String(id))
+    .filter((v, i, arr) => arr.indexOf(v) === i);
+}
+
+function resolveMappedItemName(candidateIds) {
+  for (const id of candidateIds) {
+    if (ITEM_NAME_MAP[id]) {
+      return {
+        id,
+        name: ITEM_NAME_MAP[id]
+      };
+    }
   }
 
   return null;
 }
 
+async function getCatalogItemName(itemId) {
+  try {
+    const res = await axios.get("https://catalog.roblox.com/v1/catalog/items/details", {
+      params: {
+        items: JSON.stringify([{ itemType: "Asset", id: Number(itemId) }])
+      },
+      timeout: 10000,
+      validateStatus: () => true
+    });
+
+    const item = res.data?.data?.[0];
+    if (res.status === 200 && item?.name) {
+      return item.name;
+    }
+  } catch {}
+
+  try {
+    const res = await axios.get(`https://economy.roblox.com/v2/assets/${itemId}/details`, {
+      timeout: 10000,
+      validateStatus: () => true
+    });
+
+    if (res.status === 200) {
+      return res.data?.Name || res.data?.name || null;
+    }
+  } catch {}
+
+  return null;
+}
+
+async function resolveItem(tx) {
+  const candidateIds = extractItemIds(tx);
+  const mapped = resolveMappedItemName(candidateIds);
+
+  if (mapped) {
+    return {
+      itemId: mapped.id,
+      itemName: mapped.name
+    };
+  }
+
+  const txName = extractPossibleName(tx);
+  if (txName && candidateIds[0]) {
+    return {
+      itemId: candidateIds[0],
+      itemName: txName
+    };
+  }
+
+  for (const id of candidateIds) {
+    const name = await getCatalogItemName(id);
+    if (name) {
+      return {
+        itemId: id,
+        itemName: name
+      };
+    }
+  }
+
+  return {
+    itemId: candidateIds[0] || null,
+    itemName: txName || "Item não identificado"
+  };
+}
+
+async function getItemImage(itemId) {
+  if (!itemId) return null;
+
+  try {
+    const res = await axios.get("https://thumbnails.roblox.com/v1/assets", {
+      params: {
+        assetIds: itemId,
+        size: "420x420",
+        format: "Png",
+        isCircular: false
+      },
+      timeout: 10000,
+      validateStatus: () => true
+    });
+
+    if (res.status !== 200) return null;
+    return res.data?.data?.[0]?.imageUrl || null;
+  } catch {
+    return null;
+  }
+}
+
+async function getUserAvatar(userId) {
+  if (!userId) return null;
+
+  try {
+    const res = await axios.get("https://thumbnails.roblox.com/v1/users/avatar-headshot", {
+      params: {
+        userIds: userId,
+        size: "150x150",
+        format: "Png",
+        isCircular: false
+      },
+      timeout: 10000,
+      validateStatus: () => true
+    });
+
+    if (res.status !== 200) return null;
+    return res.data?.data?.[0]?.imageUrl || null;
+  } catch {
+    return null;
+  }
+}
+
+function updateStats(dayKey, itemName, amount) {
+  const day = ensureDayStats(dayKey);
+  const safeName = itemName || "Item não identificado";
+
+  day.salesCount += 1;
+  day.totalRobux += amount;
+
+  if (amount >= CONFIG.expensiveSaleThreshold) {
+    day.expensiveSales += 1;
+  }
+
+  if (!day.items[safeName]) {
+    day.items[safeName] = {
+      count: 0,
+      robux: 0
+    };
+  }
+
+  day.items[safeName].count += 1;
+  day.items[safeName].robux += amount;
+
+  saveJSON(STATS_FILE, stats);
+}
+
 function formatDateBR(dateString) {
   try {
-    return new Date(dateString).toLocaleString("pt-BR");
+    return new Date(dateString).toLocaleString("pt-BR", {
+      timeZone: CONFIG.timezone
+    });
   } catch {
     return "Data desconhecida";
   }
 }
 
-function saveDebug(tx) {
-  saveJSON(DEBUG_FILE, tx);
-}
-
-function updateStats(itemName, amount) {
-  const today = ensureTodayStats();
-
-  today.salesCount += 1;
-  today.totalRobux += amount;
-
-  const safeName = itemName || "Item não identificado";
-
-  if (!today.items[safeName]) {
-    today.items[safeName] = {
-      count: 0,
-      robux: 0
-    };
+function formatDayBR(dayKey) {
+  try {
+    const [year, month, day] = dayKey.split("-");
+    return `${day}/${month}/${year}`;
+  } catch {
+    return dayKey;
   }
-
-  today.items[safeName].count += 1;
-  today.items[safeName].robux += amount;
-
-  saveJSON(STATS_FILE, stats);
-}
-
-function getTopItem() {
-  const today = ensureTodayStats();
-  const entries = Object.entries(today.items);
-
-  if (entries.length === 0) {
-    return {
-      name: "Nenhum ainda",
-      count: 0,
-      robux: 0
-    };
-  }
-
-  entries.sort((a, b) => b[1].count - a[1].count || b[1].robux - a[1].robux);
-
-  return {
-    name: entries[0][0],
-    count: entries[0][1].count,
-    robux: entries[0][1].robux
-  };
 }
 
 function getEmbedColor(amount) {
   if (amount >= 100) return 0xf1c40f;
+  if (amount >= CONFIG.expensiveSaleThreshold) return 0xe74c3c;
   if (amount >= 20) return 0x3498db;
   return 0x00e68a;
 }
 
-async function buildEmbed(tx) {
+async function sendWebhook(payload) {
+  const res = await axios.post(CONFIG.webhook, payload, {
+    headers: {
+      "Content-Type": "application/json"
+    },
+    timeout: 10000,
+    validateStatus: () => true
+  });
+
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(`Webhook falhou: ${res.status}`);
+  }
+}
+
+async function buildSaleEmbed(tx) {
   const buyer = extractBuyer(tx);
   const amount = extractAmount(tx);
   const created = extractCreated(tx);
-  const itemId = extractItemId(tx);
+  const dayKey = getDateKeyFromISO(created);
 
   saveDebug(tx);
 
-  const [itemInfo, itemImage, buyerAvatar] = await Promise.all([
-    getItem(itemId),
+  const resolvedItem = await resolveItem(tx);
+  const itemId = resolvedItem.itemId;
+  const itemName = resolvedItem.itemName;
+
+  const [itemImage, buyerAvatar] = await Promise.all([
     getItemImage(itemId),
     getUserAvatar(buyer.id)
   ]);
 
-  const itemName = itemInfo?.name || "Item não identificado";
   const itemLink = itemId
     ? `https://www.roblox.com/catalog/${itemId}`
     : "https://www.roblox.com/catalog/";
@@ -281,13 +428,18 @@ async function buildEmbed(tx) {
     ? `https://www.roblox.com/users/${buyer.id}/profile`
     : null;
 
-  updateStats(itemName, amount);
+  updateStats(dayKey, itemName, amount);
 
-  const today = ensureTodayStats();
-  const topItem = getTopItem();
+  const today = ensureDayStats(dayKey);
+  const topItems = getTopItems(dayKey, 1);
+  const topItem = topItems[0] || {
+    name: "Nenhum item vendido",
+    count: 0,
+    robux: 0
+  };
 
-  const embed = {
-    title: "💸 Nova venda detectada",
+  return {
+    title: amount >= CONFIG.expensiveSaleThreshold ? "🚨 Venda alta detectada" : "💸 Nova venda detectada",
     color: getEmbedColor(amount),
     description:
       `**🛍️ Item:** ${itemId ? `[${itemName}](${itemLink})` : itemName}\n` +
@@ -307,7 +459,7 @@ async function buildEmbed(tx) {
         inline: true
       },
       {
-        name: "📊 Vendas hoje",
+        name: "📦 Vendas hoje",
         value: `\`${today.salesCount}\``,
         inline: true
       },
@@ -342,39 +494,79 @@ async function buildEmbed(tx) {
     },
     timestamp: new Date(created).toISOString()
   };
-
-  return embed;
 }
 
-async function send(tx) {
-  const embed = await buildEmbed(tx);
+async function sendSale(tx) {
+  const embed = await buildSaleEmbed(tx);
 
-  const res = await axios.post(
-    CONFIG.webhook,
-    {
-      username: "BOT VENDAS ROBLOX",
-      embeds: [embed]
+  await sendWebhook({
+    username: "BOT VENDAS ROBLOX",
+    embeds: [embed]
+  });
+}
+
+async function sendDailySummary() {
+  const yesterdayKey = getYesterdayKey();
+
+  if (meta.lastSummarySentForDay === yesterdayKey) {
+    return;
+  }
+
+  const dayStats = ensureDayStats(yesterdayKey);
+  const topItems = getTopItems(yesterdayKey, 3);
+
+  const rankingText = topItems.length
+    ? topItems.map((item, index) =>
+        `**${index + 1}. ${item.name}**\n${item.count} venda(s) • ${item.robux} Robux`
+      ).join("\n\n")
+    : "Nenhum item vendido.";
+
+  const embed = {
+    title: "🌙 Resumo diário de vendas",
+    color: 0x9b59b6,
+    description:
+      `**📅 Dia:** ${formatDayBR(yesterdayKey)}\n` +
+      `**📦 Itens vendidos:** ${dayStats.salesCount}\n` +
+      `**💰 Total de Robux:** ${dayStats.totalRobux}\n` +
+      `**🚨 Vendas altas:** ${dayStats.expensiveSales}`,
+    fields: [
+      {
+        name: "🏆 Top itens do dia",
+        value: rankingText,
+        inline: false
+      }
+    ],
+    footer: {
+      text: "Resumo automático • meia-noite de Brasília"
     },
-    {
-      headers: {
-        "Content-Type": "application/json"
-      },
-      timeout: 10000,
-      validateStatus: () => true
-    }
-  );
+    timestamp: new Date().toISOString()
+  };
 
-  if (res.status < 200 || res.status >= 300) {
-    throw new Error(`Webhook falhou: ${res.status}`);
+  await sendWebhook({
+    username: "BOT VENDAS ROBLOX",
+    embeds: [embed]
+  });
+
+  meta.lastSummarySentForDay = yesterdayKey;
+  saveMeta();
+
+  console.log(`📊 Resumo diário enviado: ${yesterdayKey}`);
+}
+
+async function maybeSendDailySummary() {
+  const now = getTimeParts();
+
+  if (now.hour === "00" && Number(now.minute) <= 4) {
+    try {
+      await sendDailySummary();
+    } catch (err) {
+      console.log("Erro ao enviar resumo diário:", err.message);
+    }
   }
 }
 
-function saveSent() {
-  saveJSON(SENT_FILE, [...sent]);
-}
-
 async function bootstrap() {
-  console.log("BOT PRO INICIADO...");
+  console.log("BOT PRO EVOLUÍDO INICIADO...");
 
   const sales = await getSales();
 
@@ -383,8 +575,8 @@ async function bootstrap() {
   }
 
   saveSent();
-  ensureTodayStats();
   saveJSON(STATS_FILE, stats);
+  saveMeta();
 
   console.log(`Ignorando ${sales.length} vendas antigas.`);
 }
@@ -400,7 +592,7 @@ async function checkSales() {
     if (sent.has(txId)) continue;
 
     try {
-      await send(tx);
+      await sendSale(tx);
       sent.add(txId);
       saveSent();
       console.log("✅ Nova venda enviada:", txId);
@@ -410,11 +602,17 @@ async function checkSales() {
   }
 }
 
+async function loop() {
+  await checkSales();
+  await maybeSendDailySummary();
+}
+
 async function start() {
   await bootstrap();
+  await loop();
 
   setInterval(async () => {
-    await checkSales();
+    await loop();
   }, CONFIG.delay);
 }
 
