@@ -39,7 +39,9 @@ const SENT_FILE = path.join(DATA_DIR, "sent.json");
 const STATS_FILE = path.join(DATA_DIR, "stats.json");
 const META_FILE = path.join(DATA_DIR, "meta.json");
 const DEBUG_FILE = path.join(DATA_DIR, "debug.json");
-const CYCLE_FILE = path.join(DATA_DIR, "cycle.json");
+
+// Novo arquivo para resetar o ciclo antigo bugado
+const CYCLE_FILE = path.join(DATA_DIR, "cycle_v3.json");
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -71,9 +73,9 @@ const meta = loadJSON(META_FILE, {
 
 const cycleStats = loadJSON(CYCLE_FILE, {
   startDate: "2026-04-20",
-  grossRobux: 1427,
-  totalRobux: 428,
-  salesCount: 36
+  grossRobux: 1440,
+  totalRobux: 432,
+  salesCount: 37
 });
 
 function saveSent() {
@@ -410,7 +412,7 @@ async function getUserAvatar(userId) {
   }
 }
 
-function updateStats(dayKey, itemName, received, gross, saleKind) {
+function updateStats(dayKey, itemName, received, gross, saleKind, countCycle = true) {
   const day = ensureDayStats(dayKey);
   const safeName = sanitizeItemName(itemName);
 
@@ -418,9 +420,11 @@ function updateStats(dayKey, itemName, received, gross, saleKind) {
   day.totalRobux += received;
   day.grossRobux += gross;
 
-  cycleStats.salesCount += 1;
-  cycleStats.totalRobux += received;
-  cycleStats.grossRobux += gross;
+  if (countCycle) {
+    cycleStats.salesCount += 1;
+    cycleStats.totalRobux += received;
+    cycleStats.grossRobux += gross;
+  }
 
   if (received >= CONFIG.expensiveSaleThreshold) {
     day.expensiveSales += 1;
@@ -443,7 +447,7 @@ function updateStats(dayKey, itemName, received, gross, saleKind) {
   day.items[safeName].gross += gross;
 
   saveStats();
-  saveCycleStats();
+  if (countCycle) saveCycleStats();
 }
 
 function formatDateBR(dateString) {
@@ -514,7 +518,7 @@ async function buildSaleData(tx) {
   };
 }
 
-async function processTransaction(tx, shouldNotify) {
+async function processTransaction(tx, shouldNotify, countCycle = true) {
   const txId = extractTransactionId(tx);
 
   if (sent.has(txId)) return;
@@ -531,7 +535,8 @@ async function processTransaction(tx, shouldNotify) {
     sale.itemName,
     sale.received,
     sale.gross,
-    sale.saleType.kind
+    sale.saleType.kind,
+    countCycle
   );
 
   if (!shouldNotify) return;
@@ -732,8 +737,11 @@ async function bootstrapTodayStats() {
 
   const sales = await getSales();
 
+  // IMPORTANTE:
+  // Aqui conta apenas as estatísticas do dia,
+  // mas NÃO soma no ciclo para não duplicar seus valores manuais.
   for (const tx of [...sales].reverse()) {
-    await processTransaction(tx, false);
+    await processTransaction(tx, false, false);
   }
 
   meta.bootstrappedDay = todayKey;
@@ -748,11 +756,12 @@ async function checkSales() {
   if (!sales.length) return;
 
   for (const tx of [...sales].reverse()) {
-    await processTransaction(tx, true);
+    await processTransaction(tx, true, true);
   }
 }
 
 async function loop() {
+  saveCycleStats();
   await bootstrapTodayStats();
   await checkSales();
   await maybeSendDailySummary();
