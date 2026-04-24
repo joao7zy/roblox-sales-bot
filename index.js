@@ -39,6 +39,7 @@ const SENT_FILE = path.join(DATA_DIR, "sent.json");
 const STATS_FILE = path.join(DATA_DIR, "stats.json");
 const META_FILE = path.join(DATA_DIR, "meta.json");
 const DEBUG_FILE = path.join(DATA_DIR, "debug.json");
+const CYCLE_FILE = path.join(DATA_DIR, "cycle.json");
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -68,6 +69,13 @@ const meta = loadJSON(META_FILE, {
   bootstrappedDay: null
 });
 
+const cycleStats = loadJSON(CYCLE_FILE, {
+  startDate: "2026-04-20",
+  grossRobux: 1427,
+  totalRobux: 428,
+  salesCount: 36
+});
+
 function saveSent() {
   saveJSON(SENT_FILE, [...sent]);
 }
@@ -78,6 +86,10 @@ function saveStats() {
 
 function saveMeta() {
   saveJSON(META_FILE, meta);
+}
+
+function saveCycleStats() {
+  saveJSON(CYCLE_FILE, cycleStats);
 }
 
 function saveDebug(tx) {
@@ -406,6 +418,10 @@ function updateStats(dayKey, itemName, received, gross, saleKind) {
   day.totalRobux += received;
   day.grossRobux += gross;
 
+  cycleStats.salesCount += 1;
+  cycleStats.totalRobux += received;
+  cycleStats.grossRobux += gross;
+
   if (received >= CONFIG.expensiveSaleThreshold) {
     day.expensiveSales += 1;
   }
@@ -427,6 +443,7 @@ function updateStats(dayKey, itemName, received, gross, saleKind) {
   day.items[safeName].gross += gross;
 
   saveStats();
+  saveCycleStats();
 }
 
 function formatDateBR(dateString) {
@@ -581,6 +598,21 @@ async function processTransaction(tx, shouldNotify) {
         inline: true
       },
       {
+        name: "📈 Lucro ciclo",
+        value: `\`${cycleStats.totalRobux} Robux\``,
+        inline: true
+      },
+      {
+        name: "💼 Faturamento ciclo",
+        value: `\`${cycleStats.grossRobux} Robux\``,
+        inline: true
+      },
+      {
+        name: "📦 Vendas ciclo",
+        value: `\`${cycleStats.salesCount}\``,
+        inline: true
+      },
+      {
         name: "🌍 Regionais hoje",
         value: `\`${today.regionalSales}\``,
         inline: true
@@ -647,7 +679,12 @@ async function sendDailySummary() {
       `📦 **Itens vendidos:** ${dayStats.salesCount}\n` +
       `🌍 **Vendas regionais:** ${dayStats.regionalSales}\n` +
       `🧾 **Vendas normais:** ${dayStats.normalSales}\n` +
-      `🚨 **Vendas altas:** ${dayStats.expensiveSales}`,
+      `🚨 **Vendas altas:** ${dayStats.expensiveSales}\n\n` +
+      `━━━━━━━━━━━━━━\n\n` +
+      `📈 **ACUMULADO DO CICLO DESDE 20/04:**\n` +
+      `💼 **Faturamento acumulado:** ${cycleStats.grossRobux} Robux\n` +
+      `💰 **Lucro acumulado:** ${cycleStats.totalRobux} Robux\n` +
+      `📦 **Vendas acumuladas:** ${cycleStats.salesCount}`,
     fields: [
       {
         name: "🏆 Top itens do dia",
@@ -723,6 +760,7 @@ async function loop() {
 
 async function start() {
   console.log("BOT PRO EVOLUÍDO INICIADO...");
+  console.log(`Ciclo iniciado com ${cycleStats.grossRobux} bruto, ${cycleStats.totalRobux} lucro e ${cycleStats.salesCount} vendas.`);
   await loop();
 
   setInterval(async () => {
