@@ -39,8 +39,6 @@ const SENT_FILE = path.join(DATA_DIR, "sent.json");
 const STATS_FILE = path.join(DATA_DIR, "stats.json");
 const META_FILE = path.join(DATA_DIR, "meta.json");
 const DEBUG_FILE = path.join(DATA_DIR, "debug.json");
-
-// Novo arquivo para resetar o ciclo antigo bugado
 const CYCLE_FILE = path.join(DATA_DIR, "cycle_v3.json");
 
 if (!fs.existsSync(DATA_DIR)) {
@@ -71,12 +69,32 @@ const meta = loadJSON(META_FILE, {
   bootstrappedDay: null
 });
 
-const cycleStats = loadJSON(CYCLE_FILE, {
+// ================= CORREÇÃO DO CICLO =================
+// Valores corretos:
+// Ontem: 2233 faturamento, 670 lucro, 55 vendas
+// Hoje: +99 faturamento, +30 lucro, +3 vendas
+// Total certo: 2332 faturamento, 700 lucro, 58 vendas
+
+const CORRECT_CYCLE = {
   startDate: "2026-04-20",
-  grossRobux: 1440,
-  totalRobux: 432,
-  salesCount: 37
-});
+  grossRobux: 2332,
+  totalRobux: 700,
+  salesCount: 58
+};
+
+let cycleStats = loadJSON(CYCLE_FILE, null);
+
+if (
+  !cycleStats ||
+  Number(cycleStats.grossRobux || 0) < CORRECT_CYCLE.grossRobux ||
+  Number(cycleStats.totalRobux || 0) < CORRECT_CYCLE.totalRobux ||
+  Number(cycleStats.salesCount || 0) < CORRECT_CYCLE.salesCount
+) {
+  cycleStats = { ...CORRECT_CYCLE };
+  saveJSON(CYCLE_FILE, cycleStats);
+  console.log("✅ Ciclo corrigido para os valores certos.");
+}
+// =====================================================
 
 function saveSent() {
   saveJSON(SENT_FILE, [...sent]);
@@ -737,9 +755,6 @@ async function bootstrapTodayStats() {
 
   const sales = await getSales();
 
-  // IMPORTANTE:
-  // Aqui conta apenas as estatísticas do dia,
-  // mas NÃO soma no ciclo para não duplicar seus valores manuais.
   for (const tx of [...sales].reverse()) {
     await processTransaction(tx, false, false);
   }
@@ -770,6 +785,7 @@ async function loop() {
 async function start() {
   console.log("BOT PRO EVOLUÍDO INICIADO...");
   console.log(`Ciclo iniciado com ${cycleStats.grossRobux} bruto, ${cycleStats.totalRobux} lucro e ${cycleStats.salesCount} vendas.`);
+
   await loop();
 
   setInterval(async () => {
