@@ -70,16 +70,23 @@ const meta = loadJSON(META_FILE, {
 });
 
 // ================= CORREÇÃO DO CICLO =================
-// Valores corretos:
-// Ontem: 2233 faturamento, 670 lucro, 55 vendas
-// Hoje: +99 faturamento, +30 lucro, +3 vendas
-// Total certo: 2332 faturamento, 700 lucro, 58 vendas
-
+// Última venda que notificou:
+// 2859 faturamento, 858 lucro, 76 vendas
+//
+// 3 vendas que não notificaram:
+// lucro: 10 + 16 + 4 = 30
+// bruto estimado:
+// 10 / 0.30 = 33
+// 16 / 0.30 = 53
+// 4 / 0.30 = 13
+// total bruto = 99
+//
+// TOTAL CORRETO:
 const CORRECT_CYCLE = {
   startDate: "2026-04-20",
-  grossRobux: 2332,
-  totalRobux: 700,
-  salesCount: 58
+  grossRobux: 2958,
+  totalRobux: 888,
+  salesCount: 79
 };
 
 let cycleStats = loadJSON(CYCLE_FILE, null);
@@ -92,7 +99,7 @@ if (
 ) {
   cycleStats = { ...CORRECT_CYCLE };
   saveJSON(CYCLE_FILE, cycleStats);
-  console.log("✅ Ciclo corrigido para os valores certos.");
+  console.log("✅ Ciclo corrigido com as 3 vendas que não notificaram.");
 }
 // =====================================================
 
