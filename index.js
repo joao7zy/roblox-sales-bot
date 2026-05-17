@@ -10,7 +10,8 @@ const CONFIG = {
   delay: Number(process.env.DELAY || 10000),
   timezone: "America/Sao_Paulo",
   receiveRate: Number(process.env.DEFAULT_RECEIVE_RATE || 0.30),
-  expensiveSaleThreshold: Number(process.env.EXPENSIVE_SALE_THRESHOLD || 50)
+  expensiveSaleThreshold: Number(process.env.EXPENSIVE_SALE_THRESHOLD || 50),
+  runManualBackfill: String(process.env.RUN_MANUAL_BACKFILL || "false").toLowerCase() === "true"
 };
 
 // ========= SEUS ITENS =========
@@ -66,42 +67,23 @@ const sent = new Set(loadJSON(SENT_FILE, []));
 const stats = loadJSON(STATS_FILE, {});
 const meta = loadJSON(META_FILE, {
   lastSummarySentForDay: null,
-  bootstrappedDay: null
+  bootstrappedDay: null,
+  manualBackfillTodayDone: null
 });
 
-// ================= CORREÇÃO DO CICLO =================
-// Última venda que notificou:
-// 2859 faturamento, 858 lucro, 76 vendas
-//
-// 3 vendas que não notificaram:
-// lucro: 10 + 16 + 4 = 30
-// bruto estimado:
-// 10 / 0.30 = 33
-// 16 / 0.30 = 53
-// 4 / 0.30 = 13
-// total bruto = 99
-//
-// TOTAL CORRETO:
-const CORRECT_CYCLE = {
+const DEFAULT_CYCLE = {
   startDate: "2026-04-20",
-  grossRobux: 2958,
-  totalRobux: 888,
-  salesCount: 79
+  grossRobux: 6431,
+  totalRobux: 1931,
+  salesCount: 171
 };
 
 let cycleStats = loadJSON(CYCLE_FILE, null);
 
-if (
-  !cycleStats ||
-  Number(cycleStats.grossRobux || 0) < CORRECT_CYCLE.grossRobux ||
-  Number(cycleStats.totalRobux || 0) < CORRECT_CYCLE.totalRobux ||
-  Number(cycleStats.salesCount || 0) < CORRECT_CYCLE.salesCount
-) {
-  cycleStats = { ...CORRECT_CYCLE };
+if (!cycleStats) {
+  cycleStats = { ...DEFAULT_CYCLE };
   saveJSON(CYCLE_FILE, cycleStats);
-  console.log("✅ Ciclo corrigido com as 3 vendas que não notificaram.");
 }
-// =====================================================
 
 function saveSent() {
   saveJSON(SENT_FILE, [...sent]);
@@ -189,6 +171,18 @@ function ensureDayStats(dayKey) {
   return stats[dayKey];
 }
 
+function sanitizeItemName(name) {
+  return String(name || "Item não identificado")
+    .replace(/\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function calcGrossFromReceived(received) {
+  if (!CONFIG.receiveRate || CONFIG.receiveRate <= 0) return received;
+  return Math.round(received / CONFIG.receiveRate);
+}
+
 function getTopItems(dayKey, limit = 3) {
   const day = ensureDayStats(dayKey);
   const entries = Object.entries(day.items);
@@ -203,6 +197,44 @@ function getTopItems(dayKey, limit = 3) {
     received: data.received,
     gross: data.gross
   }));
+}
+
+function updateStats(dayKey, itemName, received, gross, saleKind, countCycle = true) {
+  const day = ensureDayStats(dayKey);
+  const safeName = sanitizeItemName(itemName);
+
+  day.salesCount += 1;
+  day.totalRobux += received;
+  day.grossRobux += gross;
+
+  if (received >= CONFIG.expensiveSaleThreshold) {
+    day.expensiveSales += 1;
+  }
+
+  if (saleKind === "regional") day.regionalSales += 1;
+  else if (saleKind === "normal") day.normalSales += 1;
+  else day.unknownSales += 1;
+
+  if (!day.items[safeName]) {
+    day.items[safeName] = {
+      count: 0,
+      received: 0,
+      gross: 0
+    };
+  }
+
+  day.items[safeName].count += 1;
+  day.items[safeName].received += received;
+  day.items[safeName].gross += gross;
+
+  if (countCycle) {
+    cycleStats.salesCount += 1;
+    cycleStats.totalRobux += received;
+    cycleStats.grossRobux += gross;
+    saveCycleStats();
+  }
+
+  saveStats();
 }
 
 function getSalesUrl() {
@@ -278,18 +310,6 @@ function extractItemIds(tx) {
     .filter(Boolean)
     .map((id) => String(id))
     .filter((v, i, arr) => arr.indexOf(v) === i);
-}
-
-function sanitizeItemName(name) {
-  return String(name || "Item não identificado")
-    .replace(/\n/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function calcGrossFromReceived(received) {
-  if (!CONFIG.receiveRate || CONFIG.receiveRate <= 0) return received;
-  return Math.round(received / CONFIG.receiveRate);
 }
 
 function classifySale(basePrice, estimatedGross) {
@@ -437,44 +457,6 @@ async function getUserAvatar(userId) {
   }
 }
 
-function updateStats(dayKey, itemName, received, gross, saleKind, countCycle = true) {
-  const day = ensureDayStats(dayKey);
-  const safeName = sanitizeItemName(itemName);
-
-  day.salesCount += 1;
-  day.totalRobux += received;
-  day.grossRobux += gross;
-
-  if (countCycle) {
-    cycleStats.salesCount += 1;
-    cycleStats.totalRobux += received;
-    cycleStats.grossRobux += gross;
-  }
-
-  if (received >= CONFIG.expensiveSaleThreshold) {
-    day.expensiveSales += 1;
-  }
-
-  if (saleKind === "regional") day.regionalSales += 1;
-  else if (saleKind === "normal") day.normalSales += 1;
-  else day.unknownSales += 1;
-
-  if (!day.items[safeName]) {
-    day.items[safeName] = {
-      count: 0,
-      received: 0,
-      gross: 0
-    };
-  }
-
-  day.items[safeName].count += 1;
-  day.items[safeName].received += received;
-  day.items[safeName].gross += gross;
-
-  saveStats();
-  if (countCycle) saveCycleStats();
-}
-
 function formatDateBR(dateString) {
   try {
     return new Date(dateString).toLocaleString("pt-BR", {
@@ -547,8 +529,6 @@ async function processTransaction(tx, shouldNotify, countCycle = true) {
   const txId = extractTransactionId(tx);
 
   if (sent.has(txId)) return;
-  sent.add(txId);
-  saveSent();
 
   const created = extractCreated(tx);
   if (!isTodayInBrasilia(created)) return;
@@ -563,6 +543,9 @@ async function processTransaction(tx, shouldNotify, countCycle = true) {
     sale.saleType.kind,
     countCycle
   );
+
+  sent.add(txId);
+  saveSent();
 
   if (!shouldNotify) return;
 
@@ -682,6 +665,54 @@ async function processTransaction(tx, shouldNotify, countCycle = true) {
   });
 }
 
+function addManualSale(dayKey, itemName, received) {
+  const gross = calcGrossFromReceived(received);
+  updateStats(dayKey, itemName, received, gross, "unknown", true);
+}
+
+function runManualBackfillToday() {
+  const todayKey = getTodayKey();
+
+  if (!CONFIG.runManualBackfill) return;
+
+  if (meta.manualBackfillTodayDone === todayKey) {
+    console.log("Backfill manual de hoje já foi aplicado.");
+    return;
+  }
+
+  console.log("Aplicando vendas manuais perdidas de hoje...");
+
+  const lostSalesToday = [
+    ["Yuji Itadori Outfit", 3],
+    ["Cute Milktea Bun Hair + Headphones Face", 10],
+    ["Cute Milktea Bun Hair + Headphones Face", 20],
+    ["Cute Milktea Bun Hair + Headphones Face", 20],
+    ["Cute White Anime Moe Hair + Empty Eyes Face", 18],
+    ["Soft Pink Kawaii Shirt", 4],
+    ["Cutecore Pink Shorts", 4],
+
+    ["Pink Kawaii Set", 4],
+    ["White Soft Girl Pants", 4],
+    ["Kawaii Anime Sleepwear", 4],
+    ["Hello Kitty Pajamas", 4],
+    ["gothlace", 4],
+    ["soft cat", 4],
+    ["coquettepink", 4],
+    ["coquettefit", 4],
+    ["Cute Milktea Bun Hair + Headphones Face", 14],
+    ["Cute Milktea Bun Hair + Headphones Face", 18]
+  ];
+
+  for (const [itemName, received] of lostSalesToday) {
+    addManualSale(todayKey, itemName, received);
+  }
+
+  meta.manualBackfillTodayDone = todayKey;
+  saveMeta();
+
+  console.log("✅ Backfill aplicado.");
+}
+
 async function sendDailySummary() {
   const yesterdayKey = getYesterdayKey();
 
@@ -784,6 +815,7 @@ async function checkSales() {
 
 async function loop() {
   saveCycleStats();
+  runManualBackfillToday();
   await bootstrapTodayStats();
   await checkSales();
   await maybeSendDailySummary();
