@@ -671,46 +671,110 @@ function addManualSale(dayKey, itemName, received) {
 }
 
 function runManualBackfillToday() {
-  const todayKey = getTodayKey();
-
   if (!CONFIG.runManualBackfill) return;
 
-  if (meta.manualBackfillTodayDone === todayKey) {
-    console.log("Backfill manual de hoje já foi aplicado.");
+  const backfillId = "maio-21-22-23-fix-completo";
+
+  if (meta.manualBackfillTodayDone === backfillId) {
+    console.log("Backfill manual já foi aplicado.");
     return;
   }
 
-  console.log("Aplicando vendas manuais perdidas de hoje...");
+  console.log("Aplicando vendas manuais perdidas...");
 
-  const lostSalesToday = [
-    ["Yuji Itadori Outfit", 3],
-    ["Cute Milktea Bun Hair + Headphones Face", 10],
-    ["Cute Milktea Bun Hair + Headphones Face", 20],
-    ["Cute Milktea Bun Hair + Headphones Face", 20],
-    ["Cute White Anime Moe Hair + Empty Eyes Face", 18],
-    ["Soft Pink Kawaii Shirt", 4],
-    ["Cutecore Pink Shorts", 4],
+  const lostSalesByDay = {
+    "2026-05-21": [
+      ["superman", 3],
+      ["Cute White Anime Moe Hair + Empty Eyes Face", 10],
+      ["Soft Pink Kawaii Shirt – Cute Aesthetic", 4],
+      ["coquettepink", 4],
+      ["Cute Milktea Bun Hair + Headphones Face", 20],
+      ["Cute White Anime Hair + Face Included", 10],
+      ["Yuji Itadori Outfit", 3],
+      ["Cute Milktea Bun Hair + Headphones Face", 20],
+      ["Cute White Anime Hair + Face Included", 18],
+      ["Dark Fluffy Hood Hair Combo (Face Included)", 27],
+      ["coquettepink", 2],
+      ["Cute Milktea Bun Hair + Headphones Face", 10],
+      ["Soft Pink Kawaii Shirt – Cute Aesthetic", 2],
+      ["Yuji Itadori Outfit", 4],
+      ["Cute White Anime Hair + Face Included", 12],
+      ["possessivo", 4],
+      ["Cute Kawaii Hair Combo (Bow + Face)", 14],
+      ["Cute Kawaii Hair Combo (Bow + Face)", 14],
+      ["bleh", 3]
+    ],
 
-    ["Pink Kawaii Set", 4],
-    ["White Soft Girl Pants", 4],
-    ["Kawaii Anime Sleepwear", 4],
-    ["Hello Kitty Pajamas", 4],
-    ["gothlace", 4],
-    ["soft cat", 4],
-    ["coquettepink", 4],
-    ["coquettefit", 4],
-    ["Cute Milktea Bun Hair + Headphones Face", 14],
-    ["Cute Milktea Bun Hair + Headphones Face", 18]
-  ];
+    "2026-05-22": [
+      ["Calça preta com vibe dark e streetwear", 3],
+      ["Dark Fluffy Hood Hair Combo (Face Included)", 21],
+      ["Dark Fluffy Hood Hair Combo (Face Included)", 16],
+      ["Black Minimal Shorts Aesthetic Cute", 3],
+      ["Dark Fluffy Hood Hair Combo (Face Included)", 21],
+      ["Cute Messy Hair + White Face Face Included", 18],
+      ["coquettepink", 4],
+      ["Cute Milktea Bun Hair + Headphones Face", 18],
+      ["Soft Pink Kawaii Shirt – Cute Aesthetic", 4],
+      ["Yuji Itadori Outfit", 3],
+      ["Cute White Anime Hair + Face Included", 10],
+      ["White Soft Girl Pants – Clean Aesthetic", 2],
+      ["Cute White Anime Hair + Face Included", 11],
+      ["White Soft Girl Pants – Clean Aesthetic", 2],
+      ["Sad Emo Hair White (Face Included)", 18],
+      ["Cute Messy Hair + White Face Face Included", 18],
+      ["Cute White Anime Hair + Face Included", 18],
+      ["White Soft Girl Pants – Clean Aesthetic", 4],
+      ["Sad Emo Hair White (Face Included)", 14],
+      ["ff se comportem", 4],
+      ["Cute Messy Hair + White Face Face Included", 18],
+      ["Angelic Red Pants FF – Crimson Divine Style", 4]
+    ],
 
-  for (const [itemName, received] of lostSalesToday) {
-    addManualSale(todayKey, itemName, received);
+    "2026-05-23": [
+      ["Cute Dinosaur Shirt", 4],
+      ["Anime Aesthetic Shirt", 4],
+      ["Cute Kawaii Bunny Shirt", 4],
+      ["fishbone kitty shirt", 4],
+      ["Kuroko No Basket Jersey", 4],
+      ["Saiyan Warrior Outfit", 4],
+      ["Goku Anime Outfit", 4],
+      ["Black Puffer Jacket (Minimal)", 4],
+      ["Angelic Red Pants FF – Crimson Divine Style", 4],
+      ["Cute Messy Hair + White Face Face Included", 18],
+      ["Second Pass FF Shirt – Pink Street Style", 4],
+      ["Real Men Wear Hello Kitty", 4],
+      ["Spider-Man Symbiote Shirt", 4],
+      ["Saitama Anime Outfit", 2],
+      ["Angelic Red Pants FF – Crimson Divine Style", 3],
+      ["Cute Messy Hair + White Face Face Included", 14],
+      ["ff se comportem", 3],
+      ["Cute White Anime Hair + Face Included", 10],
+      ["Cute White Anime Hair + Face Included", 14],
+      ["Dark Fluffy Hood Hair Combo (Face Included)", 18],
+      ["goodgirl", 3],
+      ["Black Minimal Shorts Aesthetic Cute", 3],
+      ["goodgirl", 4],
+      ["Black Minimal Shorts Aesthetic Cute", 4],
+      ["Dark Fluffy Hood Hair Combo (Face Included)", 27],
+      ["Soft Pink Corset Shirt – Cute Aesthetic", 3],
+      ["Angelic Red Pants FF – Crimson Divine Style", 3],
+      ["Cute Messy Hair + White Face Face Included", 14],
+      ["ff se comportem", 3],
+      ["possessivo", 4]
+    ]
+  };
+
+  for (const [dayKey, sales] of Object.entries(lostSalesByDay)) {
+    for (const [itemName, received] of sales) {
+      addManualSale(dayKey, itemName, received);
+    }
   }
 
-  meta.manualBackfillTodayDone = todayKey;
+  meta.manualBackfillTodayDone = backfillId;
   saveMeta();
 
-  console.log("✅ Backfill aplicado.");
+  console.log("✅ Backfill aplicado com sucesso.");
+}
 }
 
 async function sendDailySummary() {
