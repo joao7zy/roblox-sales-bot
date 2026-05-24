@@ -775,7 +775,6 @@ function runManualBackfillToday() {
 
   console.log("✅ Backfill aplicado com sucesso.");
 }
-}
 
 async function sendDailySummary() {
   const yesterdayKey = getYesterdayKey();
