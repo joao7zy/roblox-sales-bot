@@ -73,9 +73,9 @@ const meta = loadJSON(META_FILE, {
 
 const DEFAULT_CYCLE = {
   startDate: "2026-04-20",
-  grossRobux: 6431,
-  totalRobux: 1931,
-  salesCount: 171
+  grossRobux: 8764,
+  totalRobux: 2631,
+  salesCount: 242
 };
 
 let cycleStats = loadJSON(CYCLE_FILE, null);
