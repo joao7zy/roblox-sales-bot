@@ -8,5 +8,16 @@
         "robux": 4
       }
     }
+  },
+
+  "2026-05-27": {
+    "salesCount": 104,
+    "totalRobux": 761,
+    "grossRobux": 2507,
+    "regionalSales": 0,
+    "normalSales": 0,
+    "unknownSales": 104,
+    "expensiveSales": 0,
+    "items": {}
   }
 }
