@@ -244,11 +244,11 @@ function getSalesUrl() {
 async function getSales() {
   try {
     const res = await axios.get(getSalesUrl(), {
-      headers: {
-        Cookie: `.ROBLOSECURITY=${CONFIG.cookie}`,
-        "User-Agent": "Mozilla/5.0",
-        Accept: "application/json"
-      },
+    headers: {
+  Cookie: `.ROBLOSECURITY=${CONFIG.cookie};`,
+  "User-Agent": "Mozilla/5.0",
+  Accept: "application/json"
+},
       timeout: 10000,
       validateStatus: () => true
     });
