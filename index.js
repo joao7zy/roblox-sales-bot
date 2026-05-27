@@ -73,9 +73,9 @@ const meta = loadJSON(META_FILE, {
 
 const DEFAULT_CYCLE = {
   startDate: "2026-04-20",
-  grossRobux: 8764,
-  totalRobux: 2631,
-  salesCount: 242
+  grossRobux: 17402,
+  totalRobux: 5225,
+  salesCount: 580
 };
 
 let cycleStats = loadJSON(CYCLE_FILE, null);
@@ -857,7 +857,7 @@ async function bootstrapTodayStats() {
   const sales = await getSales();
 
   for (const tx of [...sales].reverse()) {
-    await processTransaction(tx, false, false);
+    await processTransaction(tx, false, true);
   }
 
   meta.bootstrappedDay = todayKey;
