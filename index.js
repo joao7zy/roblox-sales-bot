@@ -857,7 +857,7 @@ async function bootstrapTodayStats() {
   const sales = await getSales();
 
   for (const tx of [...sales].reverse()) {
-    await processTransaction(tx, false, true);
+    await processTransaction(tx, true, true);
   }
 
   meta.bootstrappedDay = todayKey;
