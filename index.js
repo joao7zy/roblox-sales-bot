@@ -7,7 +7,7 @@ const CONFIG = {
   webhook: process.env.WEBHOOK,
   cookie: process.env.COOKIE,
   groupId: process.env.GROUP_ID,
-  delay: Number(process.env.DELAY || 10000),
+  delay: Number(process.env.DELAY || 30000),
   timezone: "America/Sao_Paulo",
   receiveRate: Number(process.env.DEFAULT_RECEIVE_RATE || 0.30),
   expensiveSaleThreshold: Number(process.env.EXPENSIVE_SALE_THRESHOLD || 50),
