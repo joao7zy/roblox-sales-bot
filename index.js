@@ -872,7 +872,7 @@ async function checkSales() {
   if (!sales.length) return;
 
   for (const tx of [...sales].reverse()) {
-    await processTransaction(tx, true, true);
+    await processTransaction(tx, false, false);
   }
 }
 
