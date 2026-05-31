@@ -676,7 +676,6 @@ async function processTransaction(tx, shouldNotify, countCycle = true) {
     username: "BOT VENDAS ROBLOX",
     embeds: [embed]
   });
-}
 await sendCompactWebhook({
   username: "VENDAS",
   content:
@@ -684,6 +683,8 @@ await sendCompactWebhook({
     `👤 ${sale.buyer.name}\n` +
     `💰 +${sale.received} Robux`
 });
+
+}
 
 function addManualSale(dayKey, itemName, received) {
   const gross = calcGrossFromReceived(received);
