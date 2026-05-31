@@ -5,6 +5,7 @@ const path = require("path");
 // ================= CONFIG =================
 const CONFIG = {
   webhook: process.env.WEBHOOK,
+  compactWebhook: process.env.COMPACT_WEBHOOK,
   cookie: process.env.COOKIE,
   groupId: process.env.GROUP_ID,
   delay: Number(process.env.DELAY || 30000),
@@ -664,6 +665,13 @@ async function processTransaction(tx, shouldNotify, countCycle = true) {
     embeds: [embed]
   });
 }
+await sendWebhook({
+  username: "VENDAS",
+  content:
+    `💸 ${sale.itemName}\n` +
+    `👤 ${sale.buyer.name}\n` +
+    `💰 +${sale.received} Robux`
+});
 
 function addManualSale(dayKey, itemName, received) {
   const gross = calcGrossFromReceived(received);
