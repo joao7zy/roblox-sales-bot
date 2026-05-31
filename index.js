@@ -497,7 +497,19 @@ async function sendWebhook(payload) {
     throw new Error(`Webhook falhou: ${res.status}`);
   }
 }
+async function sendCompactWebhook(payload) {
+  const res = await axios.post(CONFIG.compactWebhook, payload, {
+    headers: {
+      "Content-Type": "application/json"
+    },
+    timeout: 10000,
+    validateStatus: () => true
+  });
 
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(`Compact webhook falhou: ${res.status}`);
+  }
+}
 async function buildSaleData(tx) {
   const buyer = extractBuyer(tx);
   const received = extractAmount(tx);
@@ -665,7 +677,7 @@ async function processTransaction(tx, shouldNotify, countCycle = true) {
     embeds: [embed]
   });
 }
-await sendWebhook({
+await sendCompactWebhook({
   username: "VENDAS",
   content:
     `💸 ${sale.itemName}\n` +
